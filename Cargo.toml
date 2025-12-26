@@ -60,3 +60,6 @@ embedded-hal-async = "1.0.0"
 [profile.release]
 # Enable generation of debug symbols even on release builds
 debug = true
+
+[[bin]]
+test = false
