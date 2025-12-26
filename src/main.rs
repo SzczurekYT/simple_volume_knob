@@ -22,18 +22,15 @@ use trouble_host::prelude::ExternalController;
 
 use {defmt_rtt as _, panic_probe as _};
 
-// Left
-// P1 1 -> 0 -> 0 -> 1 -> 1
-// P2 1 -> 1 -> 0 -> 0 -> 1
-// Right
-// P1 1 -> 1 -> 0 -> 0 -> 1
-// P2 1 -> 0 -> 0 -> 1 -> 1
-
-const MASK: u8 = 0b1111;
-const LEFT_P1: u8 = 0b1001;
-const LEFT_P2: u8 = 0b1100;
-const RIGHT_P1: u8 = 0b1100;
-const RIGHT_P2: u8 = 0b1001;
+const MASK: u8 = 0b111;
+const LEFT_P1: u8 = 0b100;
+const LEFT_P2: u8 = 0b110;
+const LEFT_P1_INV: u8 = 0b011;
+const LEFT_P2_INV: u8 = 0b001;
+const RIGHT_P1: u8 = 0b110;
+const RIGHT_P2: u8 = 0b100;
+const RIGHT_P1_INV: u8 = 0b001;
+const RIGHT_P2_INV: u8 = 0b011;
 
 const DEBOUNCE_MS: u64 = 1;
 
@@ -102,14 +99,16 @@ async fn knob_controller(p1: Peri<'static, AnyPin>, p2: Peri<'static, AnyPin>) {
         in2_history <<= 1;
         in2_history |= in2.is_high().unwrap() as u8;
 
-        let in1_last_four = in1_history & MASK;
-        let in2_last_four = in2_history & MASK;
+        let in1_pattern = in1_history & MASK;
+        let in2_pattern = in2_history & MASK;
 
-        // info!("P1 {:04b} P2 {:04b}", in1_last_four, in2_last_four);
-
-        if in1_last_four == LEFT_P1 && in2_last_four == LEFT_P2 {
+        if in1_pattern == LEFT_P1 && in2_pattern == LEFT_P2
+            || in1_pattern == LEFT_P1_INV && in2_pattern == LEFT_P2_INV
+        {
             info!("Rot left");
-        } else if in1_last_four == RIGHT_P1 && in2_last_four == RIGHT_P2 {
+        } else if in1_pattern == RIGHT_P1 && in2_pattern == RIGHT_P2
+            || in1_pattern == RIGHT_P1_INV && in2_pattern == RIGHT_P2_INV
+        {
             info!("Rot right");
         }
     }
