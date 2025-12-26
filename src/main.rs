@@ -5,7 +5,10 @@ use async_debounce::Debouncer;
 use defmt::*;
 use embassy_executor::Spawner;
 use embassy_futures::select::select;
-use embassy_rp::gpio::{Input, Pull};
+use embassy_rp::{
+    Peri,
+    gpio::{AnyPin, Input, Pull},
+};
 use embassy_time::Duration;
 use embedded_hal::digital::InputPin;
 use embedded_hal_async::digital::Wait;
@@ -28,17 +31,18 @@ const RIGHT_P2: u8 = 0b1001;
 const DEBOUNCE_MS: u64 = 1;
 
 #[embassy_executor::main]
-async fn main(_spawner: Spawner) {
+async fn main(spawner: Spawner) {
     let p = embassy_rp::init(Default::default());
 
-    let mut in1 = Debouncer::new(
-        Input::new(p.PIN_16, Pull::Up),
-        Duration::from_millis(DEBOUNCE_MS),
-    );
-    let mut in2 = Debouncer::new(
-        Input::new(p.PIN_17, Pull::Up),
-        Duration::from_millis(DEBOUNCE_MS),
-    );
+    spawner
+        .spawn(knob_controller(p.PIN_16.into(), p.PIN_17.into()))
+        .unwrap();
+}
+
+#[embassy_executor::task]
+async fn knob_controller(p1: Peri<'static, AnyPin>, p2: Peri<'static, AnyPin>) {
+    let mut in1 = Debouncer::new(Input::new(p1, Pull::Up), Duration::from_millis(DEBOUNCE_MS));
+    let mut in2 = Debouncer::new(Input::new(p2, Pull::Up), Duration::from_millis(DEBOUNCE_MS));
 
     let mut in1_history: u8 = in1.is_high().unwrap() as u8;
     let mut in2_history: u8 = in2.is_high().unwrap() as u8;
