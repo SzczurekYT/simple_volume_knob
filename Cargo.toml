@@ -62,4 +62,5 @@ embedded-hal-async = "1.0.0"
 debug = true
 
 [[bin]]
+name = "simple_volume_knob"
 test = false
