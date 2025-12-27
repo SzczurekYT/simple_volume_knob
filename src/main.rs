@@ -46,6 +46,10 @@ bind_interrupts!(struct Irqs {
 async fn main(spawner: Spawner) {
     let p = embassy_rp::init(Default::default());
 
+    spawner
+        .spawn(knob_controller(p.PIN_16.into(), p.PIN_17.into()))
+        .unwrap();
+
     let pwr = Output::new(p.PIN_23, Level::Low);
     let cs = Output::new(p.PIN_25, Level::High);
     let mut pio = Pio::new(p.PIO0, Irqs);
@@ -70,10 +74,6 @@ async fn main(spawner: Spawner) {
     let bt_controller: ExternalController<_, 10> = ExternalController::new(bt_device);
 
     bluetooth::run_bluetooth(bt_controller).await;
-
-    spawner
-        .spawn(knob_controller(p.PIN_16.into(), p.PIN_17.into()))
-        .unwrap();
 }
 
 #[embassy_executor::task]
@@ -101,6 +101,9 @@ async fn knob_controller(p1: Peri<'static, AnyPin>, p2: Peri<'static, AnyPin>) {
 
         let in1_pattern = in1_history & MASK;
         let in2_pattern = in2_history & MASK;
+
+        // info!("P1 {:03b} P2 {:03b}", in1_pattern, in2_pattern);
+        // info!("P1 {:01b} P2 {:01b}", in1_history & 1, in2_history & 1);
 
         if in1_pattern == LEFT_P1 && in2_pattern == LEFT_P2
             || in1_pattern == LEFT_P1_INV && in2_pattern == LEFT_P2_INV
