@@ -12,6 +12,8 @@ const NAME: &str = "Simple Volume Knob";
 #[gatt_server]
 struct Server {
     battery_service: BatteryService,
+    _device_info: DeviceInformationService,
+    hid: HidService,
 }
 
 #[gatt_service(uuid = service::BATTERY)]
@@ -25,20 +27,38 @@ struct BatteryService {
     status: bool,
 }
 
+const MANFUCATURER: [u8; 7] = *b"RatLabs";
+const MODEL_NUMBER_DATA: [u8; 7] = *b"SVK-1.0";
+
+#[gatt_service(uuid = service::DEVICE_INFORMATION)]
+struct DeviceInformationService {
+    #[characteristic(uuid = characteristic::MANUFACTURER_NAME_STRING, read, value = MANFUCATURER)]
+    manufacturer_name: [u8; 7],
+    #[characteristic(uuid = characteristic::MODEL_NUMBER_STRING, read, value = MODEL_NUMBER_DATA)]
+    model_number: [u8; 7],
+}
+
+const REPORT_DESCRIPTOR: [u8; 29] = [
+    0x05, 0x0C, 0x09, 0x01, 0xA1, 0x01, 0x15, 0x00, 0x25, 0x01, 0x95, 0x03, 0x75, 0x01, 0x09, 0xE9,
+    0x09, 0xEA, 0x09, 0xE2, 0x81, 0x02, 0x95, 0x01, 0x75, 0x05, 0x81, 0x01, 0xC0,
+];
+
 #[gatt_service(uuid = service::HUMAN_INTERFACE_DEVICE)]
 struct HidService {
-    // /// Battery Level
-    // #[descriptor(uuid = descriptors::VALID_RANGE, read, value = [0, 100])]
-    // #[descriptor(uuid = descriptors::MEASUREMENT_DESCRIPTION, name = "hello", read, value = "Battery Level")]
-    // #[characteristic(uuid = characteristic::BATTERY_LEVEL, read, notify, value = 10)]
-    // level: u8,
-    // #[characteristic(uuid = "408813df-5dd4-1f87-ec11-cdb001100000", write, read, notify)]
-    // status: bool,
+    #[characteristic(uuid = characteristic::HID_INFORMATION, read, value = [0x01, 0x01, 0x00, 0x03])]
+    hid_info: [u8; 4],
+    #[characteristic(uuid = characteristic::REPORT_MAP, read, value = REPORT_DESCRIPTOR)]
+    report_map: [u8; 29],
+    #[characteristic(uuid = characteristic::HID_CONTROL_POINT, write_without_response)]
+    hid_control_point: u8,
+    #[characteristic(uuid = characteristic::PROTOCOL_MODE, read, write_without_response, value = 1)]
+    protocol_mode: u8,
+    #[descriptor(uuid = descriptors::REPORT_REFERENCE, read, value = [0u8, 1u8])]
+    #[characteristic(uuid = characteristic::REPORT, read, notify)]
+    input: u8,
 }
 
 pub async fn run_bluetooth<C: Controller>(controller: C) {
-    // Using a fixed "random" address can be useful for testing. In real scenarios, one would
-    // use e.g. the MAC 6 byte array as the address (how to get that varies by the platform).
     let address: Address = Address::random([0xff, 0x8f, 0x1a, 0x05, 0xe4, 0xff]);
     info!("Our address = {:?}", address);
 
@@ -55,7 +75,7 @@ pub async fn run_bluetooth<C: Controller>(controller: C) {
 
     let server = Server::new_with_config(GapConfig::Peripheral(PeripheralConfig {
         name: NAME,
-        appearance: &appearance::human_interface_device::KEYBOARD,
+        appearance: &appearance::control_device::ROTARY_SWITCH,
     }))
     .unwrap();
 
@@ -65,7 +85,7 @@ pub async fn run_bluetooth<C: Controller>(controller: C) {
                 Ok(conn) => {
                     // set up tasks when the connection is established to a central, so they don't run when no one is connected.
                     let a = gatt_events_task(&server, &conn);
-                    let b = custom_task(&server, &conn, &stack);
+                    let b = custom_task(&server, &conn);
                     // run until any task ends (usually because the connection has been closed),
                     // then return to advertising state.
                     select(a, b).await;
@@ -133,7 +153,6 @@ async fn gatt_events_task<P: PacketPool>(
     Ok(())
 }
 
-/// Create an advertiser to use to connect to a BLE Central, and wait for it to connect.
 async fn advertise<'values, 'server, C: Controller>(
     name: &'values str,
     peripheral: &mut Peripheral<'values, C, DefaultPacketPool>,
@@ -166,31 +185,16 @@ async fn advertise<'values, 'server, C: Controller>(
     Ok(conn)
 }
 
-/// Example task to use the BLE notifier interface.
-/// This task will notify the connected central of a counter value every 2 seconds.
-/// It will also read the RSSI value every 2 seconds.
-/// and will stop when the connection is closed by the central or an error occurs.
-async fn custom_task<C: Controller, P: PacketPool>(
-    server: &Server<'_>,
-    conn: &GattConnection<'_, '_, P>,
-    stack: &Stack<'_, C, P>,
-) {
-    let mut tick: u8 = 0;
-    let level = server.battery_service.level;
+async fn custom_task<P: PacketPool>(server: &Server<'_>, conn: &GattConnection<'_, '_, P>) {
+    let mut toggle = true;
+    let report = server.hid.input;
     loop {
-        tick = tick.wrapping_add(1);
-        info!("[custom_task] notifying connection of tick {}", tick);
-        if level.notify(conn, &tick).await.is_err() {
+        let report_value = if toggle { &0b0000_0100 } else { &0b0000_0000 };
+        if report.notify(conn, report_value).await.is_err() {
             info!("[custom_task] error notifying connection");
             break;
         };
-        // read RSSI (Received Signal Strength Indicator) of the connection.
-        if let Ok(rssi) = conn.raw().rssi(stack).await {
-            info!("[custom_task] RSSI: {:?}", rssi);
-        } else {
-            info!("[custom_task] error getting RSSI");
-            break;
-        };
+        toggle = !toggle;
         Timer::after_secs(2).await;
     }
 }
