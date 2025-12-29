@@ -2,6 +2,7 @@
 #![no_main]
 
 pub mod bluetooth;
+pub mod hid;
 
 use async_debounce::Debouncer;
 use cyw43_pio::PioSpi;
@@ -10,6 +11,7 @@ use embassy_executor::Spawner;
 use embassy_futures::select::select;
 use embassy_rp::{
     Peri, bind_interrupts,
+    clocks::RoscRng,
     gpio::{AnyPin, Input, Level, Output, Pull},
     peripherals::{DMA_CH0, PIO0},
     pio::{InterruptHandler, Pio},
@@ -73,7 +75,7 @@ async fn main(spawner: Spawner) {
 
     let bt_controller: ExternalController<_, 10> = ExternalController::new(bt_device);
 
-    bluetooth::run_bluetooth(bt_controller).await;
+    bluetooth::run_bluetooth(bt_controller, RoscRng).await;
 }
 
 #[embassy_executor::task]

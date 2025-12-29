@@ -47,12 +47,14 @@ cyw43 = { version = "0.6.0", features = [
     "bluetooth",
 ] }
 cyw43-pio = { version = "0.9.0", features = ["defmt"] }
-trouble-host = { version = "0.5.1", features = ["defmt"] }
+trouble-host = { version = "0.5.1", features = ["defmt", "security"] }
 
 # Portable atomic - used by BLE
 portable-atomic = { version = "1.5", features = ["critical-section"] }
 # Cell?
 static_cell = "2.1.1"
+# Randomness (for security/auth)
+rand_core = { version = "0.6.4", default-features = false }
 
 
 # Network stuff, probably will not be needed
