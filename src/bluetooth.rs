@@ -1,4 +1,4 @@
-use crate::hid;
+use crate::{KEY_PRESS_CHANNEL, hid};
 use defmt::{panic, *};
 use embassy_futures::{join::join, select::select};
 use embassy_time::Timer;
@@ -42,7 +42,7 @@ struct DeviceInformationService {
 }
 
 #[derive(Debug, Clone, Copy)]
-enum KeyPressed {
+pub enum KeyPressed {
     VolUp,
     VolDown,
     Mute,
@@ -62,7 +62,7 @@ impl KeyPressed {
         [hid::HID_REPORT_INPUT_ID, value]
     }
 
-    pub async fn send<P: PacketPool>(
+    async fn send<P: PacketPool>(
         &self,
         conn: &GattConnection<'_, '_, P>,
         server: &Server<'_>,
@@ -130,7 +130,7 @@ where
                     conn.raw().set_bondable(bond_info.is_none()).unwrap();
 
                     let a = gatt_events_task(&server, &conn, &mut bond_info);
-                    let b = custom_task(&server, &conn);
+                    let b = key_receiver_task(&server, &conn);
 
                     select(a, b).await;
                 }
@@ -272,19 +272,12 @@ async fn handle_gatt_event<P: PacketPool>(
     Ok(())
 }
 
-async fn custom_task<P: PacketPool>(server: &Server<'_>, conn: &GattConnection<'_, '_, P>) {
-    let mut toggle = true;
+async fn key_receiver_task<P: PacketPool>(server: &Server<'_>, conn: &GattConnection<'_, '_, P>) {
     loop {
-        let key = if toggle {
-            KeyPressed::VolUp
-        } else {
-            KeyPressed::VolDown
-        };
-        if key.send(conn, server).await.is_err() {
-            info!("[custom_task] error notifying connection");
+        let key_press = KEY_PRESS_CHANNEL.receiver().receive().await;
+        if key_press.send(conn, server).await.is_err() {
+            info!("[key_receiver_task] error sending key press");
             break;
         };
-        toggle = !toggle;
-        Timer::after_secs(2).await;
     }
 }

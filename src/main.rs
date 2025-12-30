@@ -16,11 +16,14 @@ use embassy_rp::{
     peripherals::{DMA_CH0, PIO0},
     pio::{InterruptHandler, Pio},
 };
+use embassy_sync::{blocking_mutex::raw::ThreadModeRawMutex, channel::Channel};
 use embassy_time::Duration;
 use embedded_hal::digital::InputPin;
 use embedded_hal_async::digital::Wait;
 use static_cell::StaticCell;
 use trouble_host::prelude::ExternalController;
+
+use crate::bluetooth::KeyPressed;
 
 use {defmt_rtt as _, panic_probe as _};
 
@@ -39,6 +42,8 @@ const DEBOUNCE_MS: u64 = 1;
 const CYW43_FW: &[u8] = include_bytes!("../cyw43-firmware/43439A0.bin");
 const CYW43_CLM: &[u8] = include_bytes!("../cyw43-firmware/43439A0_clm.bin");
 const CYW43_BTFW: &[u8] = include_bytes!("../cyw43-firmware/43439A0_btfw.bin");
+
+pub static KEY_PRESS_CHANNEL: Channel<ThreadModeRawMutex, KeyPressed, 48> = Channel::new();
 
 bind_interrupts!(struct Irqs {
     PIO0_IRQ_0 => InterruptHandler<PIO0>;
@@ -111,10 +116,12 @@ async fn knob_controller(p1: Peri<'static, AnyPin>, p2: Peri<'static, AnyPin>) {
             || in1_pattern == LEFT_P1_INV && in2_pattern == LEFT_P2_INV
         {
             info!("Rot left");
+            KEY_PRESS_CHANNEL.send(KeyPressed::VolDown).await;
         } else if in1_pattern == RIGHT_P1 && in2_pattern == RIGHT_P2
             || in1_pattern == RIGHT_P1_INV && in2_pattern == RIGHT_P2_INV
         {
             info!("Rot right");
+            KEY_PRESS_CHANNEL.send(KeyPressed::VolUp).await;
         }
     }
 }
