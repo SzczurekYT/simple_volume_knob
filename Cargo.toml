@@ -10,19 +10,19 @@ cortex-m-rt = "0.7.0"
 panic-probe = { version = "1.0.0", features = ["print-defmt"] }
 
 # Embassy
-embassy-embedded-hal = { version = "0.5.0", features = ["defmt"] }
-embassy-executor = { version = "0.9.1", features = [
-    "arch-cortex-m",
+embassy-embedded-hal = { version = "0.6.0", features = ["defmt"] }
+embassy-executor = { version = "0.10.0", features = [
+    "platform-cortex-m",
     "executor-thread",
     "executor-interrupt",
     "defmt",
 ] }
-embassy-time = { version = "0.5.0", features = [
+embassy-time = { version = "0.5.1", features = [
     "defmt",
     "defmt-timestamp-uptime",
 ] }
 embassy-futures = { version = "0.1.2" }
-embassy-rp = { version = "0.9.0", features = [
+embassy-rp = { version = "0.10.0", features = [
     "defmt",
     "unstable-pac",
     "time-driver",
@@ -41,16 +41,16 @@ embedded-hal = "1.0.0"
 embedded-hal-async = "1.0.0"
 
 # Bluetooth
-cyw43 = { version = "0.6.0", features = [
+cyw43 = { version = "0.7.0", features = [
     "defmt",
     "firmware-logs",
     "bluetooth",
 ] }
-cyw43-pio = { version = "0.9.0", features = ["defmt"] }
-trouble-host = { version = "0.5.1", features = ["defmt", "security"] }
+cyw43-pio = { version = "0.10.0", features = ["defmt"] }
+trouble-host = { version = "0.6.0", features = ["defmt", "security"] }
 
 # Portable atomic - used by BLE
-portable-atomic = { version = "1.5", features = ["critical-section"] }
+portable-atomic = { version = "1.13.1", features = ["critical-section"] }
 # Cell?
 static_cell = "2.1.1"
 # Randomness (for security/auth)
@@ -74,6 +74,14 @@ rand_core = { version = "0.6.4", default-features = false }
 #     "proto-ipv6",
 #     "multicast",
 # ] }
+
+[patch.crates-io]
+cyw43 = { git = "https://github.com/embassy-rs/embassy", rev = "d273fdf9cea59a77c91667befae084bbb716acd5" }
+cyw43-pio = { git = "https://github.com/embassy-rs/embassy", rev = "d273fdf9cea59a77c91667befae084bbb716acd5" }
+embassy-embedded-hal = { git = "https://github.com/embassy-rs/embassy", rev = "d273fdf9cea59a77c91667befae084bbb716acd5" }
+embassy-executor = { git = "https://github.com/embassy-rs/embassy", rev = "d273fdf9cea59a77c91667befae084bbb716acd5" }
+embassy-time = { git = "https://github.com/embassy-rs/embassy", rev = "d273fdf9cea59a77c91667befae084bbb716acd5" }
+embassy-rp = { git = "https://github.com/embassy-rs/embassy", rev = "d273fdf9cea59a77c91667befae084bbb716acd5" }
 
 [profile.release]
 # Enable generation of debug symbols even on release builds

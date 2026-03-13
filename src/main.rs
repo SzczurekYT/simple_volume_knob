@@ -5,6 +5,7 @@ pub mod bluetooth;
 pub mod hid;
 
 use async_debounce::Debouncer;
+use cyw43::{A4, Aligned, aligned_bytes};
 use cyw43_pio::PioSpi;
 use defmt::*;
 use embassy_executor::Spawner;
@@ -12,6 +13,7 @@ use embassy_futures::select::select;
 use embassy_rp::{
     Peri, bind_interrupts,
     clocks::RoscRng,
+    dma,
     gpio::{AnyPin, Input, Level, Output, Pull},
     peripherals::{DMA_CH0, PIO0},
     pio::{InterruptHandler, Pio},
@@ -39,23 +41,23 @@ const RIGHT_P2_INV: u8 = 0b011;
 
 const DEBOUNCE_MS: u64 = 1;
 
-const CYW43_FW: &[u8] = include_bytes!("../cyw43-firmware/43439A0.bin");
-const CYW43_CLM: &[u8] = include_bytes!("../cyw43-firmware/43439A0_clm.bin");
-const CYW43_BTFW: &[u8] = include_bytes!("../cyw43-firmware/43439A0_btfw.bin");
+const CYW43_FW: &Aligned<A4, [u8]> = aligned_bytes!("../cyw43-firmware/43439A0.bin");
+const CYW43_CLM: &Aligned<A4, [u8]> = aligned_bytes!("../cyw43-firmware/43439A0_clm.bin");
+const CYW43_BTFW: &Aligned<A4, [u8]> = aligned_bytes!("../cyw43-firmware/43439A0_btfw.bin");
+const CYW43_NVRAM: &Aligned<A4, [u8]> = aligned_bytes!("../cyw43-firmware/nvram_rp2040.bin");
 
 pub static KEY_PRESS_CHANNEL: Channel<ThreadModeRawMutex, KeyPressed, 48> = Channel::new();
 
 bind_interrupts!(struct Irqs {
     PIO0_IRQ_0 => InterruptHandler<PIO0>;
+    DMA_IRQ_0 => dma::InterruptHandler<DMA_CH0>;
 });
 
 #[embassy_executor::main]
 async fn main(spawner: Spawner) {
     let p = embassy_rp::init(Default::default());
 
-    spawner
-        .spawn(knob_controller(p.PIN_16.into(), p.PIN_17.into()))
-        .unwrap();
+    spawner.spawn(unwrap!(knob_controller(p.PIN_16.into(), p.PIN_17.into())));
 
     let pwr = Output::new(p.PIN_23, Level::Low);
     let cs = Output::new(p.PIN_25, Level::High);
@@ -68,14 +70,14 @@ async fn main(spawner: Spawner) {
         cs,
         p.PIN_24,
         p.PIN_29,
-        p.DMA_CH0,
+        dma::Channel::new(p.DMA_CH0, Irqs),
     );
 
     static CYW43_STATE: StaticCell<cyw43::State> = StaticCell::new();
     let cyw43_state = CYW43_STATE.init(cyw43::State::new());
     let (_net_device, bt_device, mut control, runner) =
-        cyw43::new_with_bluetooth(cyw43_state, pwr, spi, CYW43_FW, CYW43_BTFW).await;
-    spawner.spawn(cyw43_task(runner)).unwrap();
+        cyw43::new_with_bluetooth(cyw43_state, pwr, spi, CYW43_FW, CYW43_BTFW, CYW43_NVRAM).await;
+    spawner.spawn(unwrap!(cyw43_task(runner)));
     control.init(CYW43_CLM).await;
 
     let bt_controller: ExternalController<_, 10> = ExternalController::new(bt_device);
@@ -85,7 +87,7 @@ async fn main(spawner: Spawner) {
 
 #[embassy_executor::task]
 async fn cyw43_task(
-    runner: cyw43::Runner<'static, Output<'static>, PioSpi<'static, PIO0, 0, DMA_CH0>>,
+    runner: cyw43::Runner<'static, cyw43::SpiBus<Output<'static>, PioSpi<'static, PIO0, 0>>>,
 ) -> ! {
     runner.run().await
 }

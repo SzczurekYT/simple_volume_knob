@@ -1,3 +1,5 @@
+// Needed because `trouble` macros generate something that triggers the warning
+#![allow(clippy::needless_borrows_for_generic_args)]
 use crate::{KEY_PRESS_CHANNEL, hid};
 use defmt::{panic, *};
 use embassy_futures::{join::join, select::select};
@@ -18,12 +20,11 @@ struct Server {
     _device_info: DeviceInformationService,
     hid: HidService,
 }
-
 #[gatt_service(uuid = service::BATTERY)]
 struct BatteryService {
     /// Battery Level
     #[descriptor(uuid = descriptors::VALID_RANGE, read, value = [0, 100])]
-    #[descriptor(uuid = descriptors::MEASUREMENT_DESCRIPTION, name = "hello", read, value = "Battery Level")]
+    #[descriptor(uuid = descriptors::MEASUREMENT_DESCRIPTION, read, value = "Battery Level")]
     #[characteristic(uuid = characteristic::BATTERY_LEVEL, read, notify, value = 100)]
     level: u8,
     #[characteristic(uuid = "408813df-5dd4-1f87-ec11-cdb001100000", write, read, notify)]
@@ -106,8 +107,9 @@ where
         HostResources::new();
     let stack = trouble_host::new(controller, &mut resources)
         .set_random_address(address)
-        .set_random_generator_seed(&mut rng)
-        .set_io_capabilities(IoCapabilities::DisplayYesNo);
+        .set_random_generator_seed(&mut rng);
+
+    stack.set_io_capabilities(IoCapabilities::DisplayYesNo);
 
     let Host {
         mut peripheral,
