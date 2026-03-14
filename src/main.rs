@@ -61,14 +61,17 @@ pub static KEY_PRESS_CHANNEL: Channel<ThreadModeRawMutex, KeyPressed, 48> = Chan
 bind_interrupts!(struct Irqs {
     PIO0_IRQ_0 => InterruptHandler<PIO0>;
     DMA_IRQ_0 => dma::InterruptHandler<DMA_CH0>, dma::InterruptHandler<DMA_CH1>;
-    // DMA_IRQ_1 => dma::InterruptHandler<DMA_CH1>;
 });
 
 #[embassy_executor::main]
 async fn main(spawner: Spawner) {
     let p = embassy_rp::init(Default::default());
 
-    spawner.spawn(unwrap!(knob_controller(p.PIN_16.into(), p.PIN_17.into())));
+    spawner.spawn(unwrap!(knob_controller(
+        p.PIN_16.into(),
+        p.PIN_17.into(),
+        p.PIN_18.into()
+    )));
 
     let pwr = Output::new(p.PIN_23, Level::Low);
     let cs = Output::new(p.PIN_25, Level::High);
@@ -115,16 +118,35 @@ async fn cyw43_task(
 }
 
 #[embassy_executor::task]
-async fn knob_controller(p1: Peri<'static, AnyPin>, p2: Peri<'static, AnyPin>) {
+async fn knob_controller(
+    p1: Peri<'static, AnyPin>,
+    p2: Peri<'static, AnyPin>,
+    mute: Peri<'static, AnyPin>,
+) {
     let mut in1 = Debouncer::new(Input::new(p1, Pull::Up), Duration::from_millis(DEBOUNCE_MS));
     let mut in2 = Debouncer::new(Input::new(p2, Pull::Up), Duration::from_millis(DEBOUNCE_MS));
+    let mut mute_in = Debouncer::new(
+        Input::new(mute, Pull::Up),
+        Duration::from_millis(DEBOUNCE_MS),
+    );
 
     let mut in1_history: u8 = in1.is_high().unwrap() as u8;
     let mut in2_history: u8 = in2.is_high().unwrap() as u8;
 
     loop {
         // Infallible errors
-        let _ = select(in1.wait_for_any_edge(), in2.wait_for_any_edge()).await;
+        let select_result = select(
+            select(in1.wait_for_any_edge(), in2.wait_for_any_edge()),
+            mute_in.wait_for_falling_edge(),
+        )
+        .await;
+
+        if select_result.is_second() {
+            info!("Mute");
+            KEY_PRESS_CHANNEL.send(KeyPressed::Mute).await;
+            continue;
+        }
+
         in1_history <<= 1;
         in1_history |= in1.is_high().unwrap() as u8;
         in2_history <<= 1;
