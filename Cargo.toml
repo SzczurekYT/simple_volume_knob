@@ -55,6 +55,10 @@ portable-atomic = { version = "1.13.1", features = ["critical-section"] }
 static_cell = "2.1.1"
 # Randomness (for security/auth)
 rand_core = { version = "0.6.4", default-features = false }
+# Storage
+sequential-storage = "7.1.0"
+embedded-storage = "0.3.1"
+embedded-storage-async = "0.4.1"
 
 
 # Network stuff, probably will not be needed

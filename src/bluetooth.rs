@@ -1,10 +1,15 @@
 // Needed because `trouble` macros generate something that triggers the warning
 #![allow(clippy::needless_borrows_for_generic_args)]
-use crate::{KEY_PRESS_CHANNEL, hid};
+use crate::{
+    KEY_PRESS_CHANNEL, hid,
+    storage::{self, StoredAddr, load_bonding_info},
+};
 use defmt::{panic, *};
 use embassy_futures::{join::join, select::select};
 use embassy_time::Timer;
+use embedded_storage_async::nor_flash::NorFlash;
 use rand_core::{CryptoRng, RngCore};
+use sequential_storage::{cache::NoCache, map::MapStorage};
 use trouble_host::prelude::*;
 
 use {defmt_rtt as _, panic_probe as _};
@@ -93,12 +98,24 @@ struct HidService {
     input: InputRaport,
 }
 
-pub async fn run_bluetooth<C, RNG>(controller: C, mut rng: RNG)
-where
+pub async fn run_bluetooth<C, S, RNG>(
+    controller: C,
+    storage: &mut MapStorage<StoredAddr, S, NoCache>,
+    mut rng: RNG,
+) where
     C: Controller,
+    S: NorFlash,
     RNG: RngCore + CryptoRng,
 {
-    let mut bond_info: Option<BondInformation> = None;
+    info!("Trying to load bond information");
+
+    let mut bond_info: Option<BondInformation> = load_bonding_info(storage).await;
+
+    if bond_info.is_some() {
+        info!("Loaded bond information");
+    } else {
+        info!("No bond information found");
+    }
 
     let address: Address = Address::random([0xff, 0x8f, 0x1a, 0x05, 0xe4, 0xff]);
     info!("Device address = {:?}", address);
@@ -110,6 +127,10 @@ where
         .set_random_generator_seed(&mut rng);
 
     stack.set_io_capabilities(IoCapabilities::DisplayYesNo);
+
+    if let Some(bond) = &bond_info {
+        stack.add_bond_information(bond.clone()).unwrap();
+    };
 
     let Host {
         mut peripheral,
@@ -131,7 +152,7 @@ where
                 Ok(conn) => {
                     conn.raw().set_bondable(bond_info.is_none()).unwrap();
 
-                    let a = gatt_events_task(&server, &conn, &mut bond_info);
+                    let a = gatt_events_task(&server, &conn, &mut bond_info, storage);
                     let b = key_receiver_task(&server, &conn);
 
                     select(a, b).await;
@@ -187,10 +208,11 @@ async fn advertise<'values, 'server, C: Controller>(
     Ok(conn)
 }
 
-async fn gatt_events_task<P: PacketPool>(
+async fn gatt_events_task<P: PacketPool, S: NorFlash>(
     server: &Server<'_>,
     conn: &GattConnection<'_, '_, P>,
     bond_info: &mut Option<BondInformation>,
+    storage: &mut MapStorage<StoredAddr, S, NoCache>,
 ) -> Result<(), Error> {
     let reason = loop {
         match conn.next().await {
@@ -215,6 +237,9 @@ async fn gatt_events_task<P: PacketPool>(
                     "[auth] pairing complete: {:?}, bond: {:?}",
                     security_level, bond
                 );
+                if let Some(bond) = &bond {
+                    storage::store_bonding_info(storage, bond).await.unwrap();
+                }
                 *bond_info = bond;
             }
             GattConnectionEvent::PairingFailed(err) => {

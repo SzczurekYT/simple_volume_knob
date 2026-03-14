@@ -1,0 +1,110 @@
+use embedded_storage_async::nor_flash::NorFlash;
+use sequential_storage::{
+    cache::NoCache,
+    map::{Key, MapStorage, SerializationError, Value},
+};
+use trouble_host::{
+    BondInformation, Identity, LongTermKey,
+    prelude::{BdAddr, SecurityLevel},
+};
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct StoredAddr(BdAddr);
+
+impl Key for StoredAddr {
+    fn serialize_into(&self, buffer: &mut [u8]) -> Result<usize, SerializationError> {
+        if buffer.len() < 6 {
+            return Err(SerializationError::BufferTooSmall);
+        }
+        buffer[0..6].copy_from_slice(self.0.raw());
+        Ok(6)
+    }
+
+    fn deserialize_from(buffer: &[u8]) -> Result<(Self, usize), SerializationError> {
+        if buffer.len() < 6 {
+            Err(SerializationError::BufferTooSmall)
+        } else {
+            Ok((StoredAddr(BdAddr::new(buffer[0..6].try_into().unwrap())), 6))
+        }
+    }
+}
+
+pub struct StoredBondInformation {
+    ltk: LongTermKey,
+    security_level: SecurityLevel,
+}
+
+impl<'a> Value<'a> for StoredBondInformation {
+    fn serialize_into(&self, buffer: &mut [u8]) -> Result<usize, SerializationError> {
+        if buffer.len() < 17 {
+            return Err(SerializationError::BufferTooSmall);
+        }
+        buffer[0..16].copy_from_slice(self.ltk.to_le_bytes().as_slice());
+        buffer[16] = match self.security_level {
+            SecurityLevel::NoEncryption => 0,
+            SecurityLevel::Encrypted => 1,
+            SecurityLevel::EncryptedAuthenticated => 2,
+        };
+        Ok(17)
+    }
+
+    fn deserialize_from(buffer: &'a [u8]) -> Result<(Self, usize), SerializationError>
+    where
+        Self: Sized,
+    {
+        if buffer.len() < 17 {
+            Err(SerializationError::BufferTooSmall)
+        } else {
+            let ltk = LongTermKey::from_le_bytes(buffer[0..16].try_into().unwrap());
+            let security_level = match buffer[16] {
+                0 => SecurityLevel::NoEncryption,
+                1 => SecurityLevel::Encrypted,
+                2 => SecurityLevel::EncryptedAuthenticated,
+                _ => return Err(SerializationError::InvalidData),
+            };
+            Ok((
+                StoredBondInformation {
+                    ltk,
+                    security_level,
+                },
+                17,
+            ))
+        }
+    }
+}
+
+pub async fn store_bonding_info<S: NorFlash>(
+    storage: &mut MapStorage<StoredAddr, S, NoCache>,
+    info: &BondInformation,
+) -> Result<(), sequential_storage::Error<S::Error>> {
+    storage.erase_all().await?;
+    let mut buffer = [0; 32];
+    let key = StoredAddr(info.identity.bd_addr);
+    let value = StoredBondInformation {
+        ltk: info.ltk,
+        security_level: info.security_level,
+    };
+    storage.store_item(&mut buffer, &key, &value).await?;
+    Ok(())
+}
+
+pub async fn load_bonding_info<S: NorFlash>(
+    storage: &mut MapStorage<StoredAddr, S, NoCache>,
+) -> Option<BondInformation> {
+    let mut buffer = [0; 32];
+
+    let mut iter = storage.fetch_all_items(&mut buffer).await.ok()?;
+
+    iter.next::<StoredBondInformation>(&mut buffer)
+        .await
+        .ok()?
+        .map(|(key, value)| BondInformation {
+            identity: Identity {
+                bd_addr: key.0,
+                irk: None,
+            },
+            security_level: value.security_level,
+            is_bonded: true,
+            ltk: value.ltk,
+        })
+}

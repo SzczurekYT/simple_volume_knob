@@ -3,6 +3,7 @@
 
 pub mod bluetooth;
 pub mod hid;
+pub mod storage;
 
 use async_debounce::Debouncer;
 use cyw43::{A4, Aligned, aligned_bytes};
@@ -14,18 +15,23 @@ use embassy_rp::{
     Peri, bind_interrupts,
     clocks::RoscRng,
     dma,
+    flash::Flash,
     gpio::{AnyPin, Input, Level, Output, Pull},
-    peripherals::{DMA_CH0, PIO0},
+    peripherals::{DMA_CH0, DMA_CH1, PIO0},
     pio::{InterruptHandler, Pio},
 };
 use embassy_sync::{blocking_mutex::raw::ThreadModeRawMutex, channel::Channel};
 use embassy_time::Duration;
 use embedded_hal::digital::InputPin;
 use embedded_hal_async::digital::Wait;
+use sequential_storage::{
+    cache::NoCache,
+    map::{MapConfig, MapStorage},
+};
 use static_cell::StaticCell;
 use trouble_host::prelude::ExternalController;
 
-use crate::bluetooth::KeyPressed;
+use crate::{bluetooth::KeyPressed, storage::StoredAddr};
 
 use {defmt_rtt as _, panic_probe as _};
 
@@ -41,6 +47,10 @@ const RIGHT_P2_INV: u8 = 0b011;
 
 const DEBOUNCE_MS: u64 = 1;
 
+const FLASH_ADDR_OFFSET: u32 = 0x100000;
+// Pico has 2 MB
+const FLASH_SIZE: usize = 2 * 1024 * 1024;
+
 const CYW43_FW: &Aligned<A4, [u8]> = aligned_bytes!("../cyw43-firmware/43439A0.bin");
 const CYW43_CLM: &Aligned<A4, [u8]> = aligned_bytes!("../cyw43-firmware/43439A0_clm.bin");
 const CYW43_BTFW: &Aligned<A4, [u8]> = aligned_bytes!("../cyw43-firmware/43439A0_btfw.bin");
@@ -50,7 +60,8 @@ pub static KEY_PRESS_CHANNEL: Channel<ThreadModeRawMutex, KeyPressed, 48> = Chan
 
 bind_interrupts!(struct Irqs {
     PIO0_IRQ_0 => InterruptHandler<PIO0>;
-    DMA_IRQ_0 => dma::InterruptHandler<DMA_CH0>;
+    DMA_IRQ_0 => dma::InterruptHandler<DMA_CH0>, dma::InterruptHandler<DMA_CH1>;
+    // DMA_IRQ_1 => dma::InterruptHandler<DMA_CH1>;
 });
 
 #[embassy_executor::main]
@@ -82,7 +93,18 @@ async fn main(spawner: Spawner) {
 
     let bt_controller: ExternalController<_, 10> = ExternalController::new(bt_device);
 
-    bluetooth::run_bluetooth(bt_controller, RoscRng).await;
+    let flash: Flash<'_, _, _, FLASH_SIZE> = Flash::new(p.FLASH, p.DMA_CH1, Irqs);
+
+    let map_config = const {
+        let start = FLASH_ADDR_OFFSET;
+        let end = FLASH_ADDR_OFFSET + 8 * 0x1000;
+        MapConfig::new(start..end)
+    };
+
+    let mut storage: MapStorage<StoredAddr, _, _> =
+        MapStorage::new(flash, map_config, NoCache::new());
+
+    bluetooth::run_bluetooth(bt_controller, &mut storage, RoscRng).await;
 }
 
 #[embassy_executor::task]
