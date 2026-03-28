@@ -148,6 +148,7 @@ pub async fn run_bluetooth<C, S, RNG>(
 
     let _ = join(ble_task(runner), async {
         loop {
+            KEY_PRESS_CHANNEL.clear();
             match advertise(NAME, &mut peripheral, &server).await {
                 Ok(conn) => {
                     conn.raw().set_bondable(bond_info.is_none()).unwrap();
