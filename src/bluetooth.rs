@@ -1,7 +1,9 @@
 // Needed because `trouble` macros generate something that triggers the warning
 #![allow(clippy::needless_borrows_for_generic_args)]
+use core::sync::atomic::Ordering;
+
 use crate::{
-    KEY_PRESS_CHANNEL, hid,
+    IS_CONNECTED, KEY_PRESS_CHANNEL, hid,
     storage::{self, StoredAddr, load_bonding_info},
 };
 use defmt::{panic, *};
@@ -151,12 +153,14 @@ pub async fn run_bluetooth<C, S, RNG>(
             KEY_PRESS_CHANNEL.clear();
             match advertise(NAME, &mut peripheral, &server).await {
                 Ok(conn) => {
+                    IS_CONNECTED.store(true, Ordering::Relaxed);
                     conn.raw().set_bondable(bond_info.is_none()).unwrap();
 
                     let a = gatt_events_task(&server, &conn, &mut bond_info, storage);
                     let b = key_receiver_task(&server, &conn);
 
                     select(a, b).await;
+                    IS_CONNECTED.store(false, Ordering::Relaxed);
                 }
                 Err(e) => {
                     let e = defmt::Debug2Format(&e);

@@ -5,6 +5,8 @@ pub mod bluetooth;
 pub mod hid;
 pub mod storage;
 
+use core::sync::atomic::{AtomicBool, Ordering};
+
 use async_debounce::Debouncer;
 use cyw43::{A4, Aligned, aligned_bytes};
 use cyw43_pio::PioSpi;
@@ -57,6 +59,7 @@ const CYW43_BTFW: &Aligned<A4, [u8]> = aligned_bytes!("../cyw43-firmware/43439A0
 const CYW43_NVRAM: &Aligned<A4, [u8]> = aligned_bytes!("../cyw43-firmware/nvram_rp2040.bin");
 
 pub static KEY_PRESS_CHANNEL: Channel<ThreadModeRawMutex, KeyPressed, 48> = Channel::new();
+pub static IS_CONNECTED: AtomicBool = AtomicBool::new(false);
 
 bind_interrupts!(struct Irqs {
     PIO0_IRQ_0 => InterruptHandler<PIO0>;
@@ -143,7 +146,9 @@ async fn knob_controller(
 
         if select_result.is_second() {
             info!("Mute");
-            KEY_PRESS_CHANNEL.send(KeyPressed::Mute).await;
+            if IS_CONNECTED.load(Ordering::Relaxed) {
+                KEY_PRESS_CHANNEL.send(KeyPressed::Mute).await;
+            }
             continue;
         }
 
@@ -162,12 +167,16 @@ async fn knob_controller(
             || in1_pattern == LEFT_P1_INV && in2_pattern == LEFT_P2_INV
         {
             info!("Rot left");
-            KEY_PRESS_CHANNEL.send(KeyPressed::VolDown).await;
+            if IS_CONNECTED.load(Ordering::Relaxed) {
+                KEY_PRESS_CHANNEL.send(KeyPressed::VolDown).await;
+            }
         } else if in1_pattern == RIGHT_P1 && in2_pattern == RIGHT_P2
             || in1_pattern == RIGHT_P1_INV && in2_pattern == RIGHT_P2_INV
         {
             info!("Rot right");
-            KEY_PRESS_CHANNEL.send(KeyPressed::VolUp).await;
+            if IS_CONNECTED.load(Ordering::Relaxed) {
+                KEY_PRESS_CHANNEL.send(KeyPressed::VolUp).await;
+            }
         }
     }
 }
