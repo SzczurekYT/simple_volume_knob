@@ -3,6 +3,9 @@
 A simple Pi Pico W based device that lets you control the volume of your pc
 using a knob.
 
+## Demo
+Check out the demo on [youtube](https://youtu.be/TflLHjyw2wg).
+
 ## Building it yourself
 You can build this device yourself.<br>
 You need:
